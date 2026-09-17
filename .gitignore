@@ -1,0 +1,25 @@
+# Personal settings and runtime data never belong in the public repository.
+settings.local.json
+.private/
+exports/
+wechat-reports/
+reports/
+.venv/
+__pycache__/
+*.py[cod]
+*.db
+*.db-*
+*.sqlite*
+keys.json
+.env
+.env.*
+!.env.example
+**/messages.json
+**/messages.txt
+!examples/synthetic/messages.json
+*.zip
+*.m4a
+*.mp4
+.DS_Store
+Thumbs.db
+.test-output/
