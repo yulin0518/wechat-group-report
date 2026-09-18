@@ -137,12 +137,57 @@ def render_png(data, output, regular=None, bold=None):
         raise ValueError('缺少中文字体，请使用 --font 和 --bold-font 指定字体文件')
     fonts, commands = {}, []
     measure = ImageDraw.Draw(Image.new('RGB', (1, 1)))
+    # 群名、昵称和正文里常有 emoji，微软雅黑没有这些字形，会渲染成方框。
+    # 系统有 Segoe UI Emoji 时按字符回退到它；没有就退回原字体（不报错）。
+    emoji_path = system / 'seguiemj.ttf'
+    emoji_ok = emoji_path.is_file()
+    emoji_fonts = {}
+    zero_width = {'\ufe0f', '\ufe0e', '\u200d'}
+
+    def is_emoji(ch):
+        cp = ord(ch)
+        return (0x1f000 <= cp <= 0x1faff) or (0x2600 <= cp <= 0x27bf) or (0x2b00 <= cp <= 0x2bff) \
+            or cp in (0x2764, 0x2b50, 0x203c, 0x2049)
 
     def font(size, heavy=False):
         key = size, heavy
         if key not in fonts:
             fonts[key] = ImageFont.truetype(str(bold if heavy else regular), size*SCALE)
         return fonts[key]
+
+    def efont(size):
+        if not emoji_ok:
+            return None
+        if size not in emoji_fonts:
+            emoji_fonts[size] = ImageFont.truetype(str(emoji_path), size*SCALE)
+        return emoji_fonts[size]
+
+    def runs(value):
+        """按「普通字符 / emoji」切成连续片段，顺带丢弃零宽字符。"""
+        out = []
+        for ch in value:
+            if ch in zero_width:
+                continue
+            flag = is_emoji(ch)
+            if out and out[-1][1] == flag:
+                out[-1][0] += ch
+            else:
+                out.append([ch, flag])
+        return out
+
+    def tlen(value, size, heavy=False):
+        total = 0.0
+        for text, flag in runs(value):
+            ef = efont(size) if flag else None
+            total += measure.textlength(text, font=ef or font(size, heavy))
+        return total
+
+    def draw_runs(draw, x, y, value, size, color, heavy):
+        for text, flag in runs(value):
+            ef = efont(size) if flag else None
+            use = ef or font(size, heavy)
+            draw.text((x*SCALE, y*SCALE), text, font=use, fill=color)
+            x += measure.textlength(text, font=use) / SCALE
 
     def label(x, y, value, size=30, color=INK, heavy=False):
         commands.append(('text', x, y, value, size, color, heavy))
@@ -155,9 +200,9 @@ def render_png(data, output, regular=None, bold=None):
         for part in value.split('\n'):
             line = ''
             for token in re.findall(r'[A-Za-z0-9][A-Za-z0-9._/／+–-]*|.', part):
-                pieces = [token] if measure.textlength(token, font=font(size, heavy)) <= width*SCALE else list(token)
+                pieces = [token] if tlen(token, size, heavy) <= width*SCALE else list(token)
                 for char in pieces:
-                    if line and measure.textlength(line+char, font=font(size, heavy)) > width*SCALE:
+                    if line and tlen(line+char, size, heavy) > width*SCALE:
                         lines.append(line); line = char
                     else:
                         line += char
@@ -180,7 +225,7 @@ def render_png(data, output, regular=None, bold=None):
     title = '这 ' + data['hours'] + ' 小时，群里聊了什么'
     # Realistic periods fit a single line; long titles are measured, not clipped.
     title_size = 60
-    while measure.textlength(title, font=font(title_size, True)) > 1420*SCALE and title_size > 32:
+    while tlen(title, title_size, True) > 1420*SCALE and title_size > 32:
         title_size -= 2
     label(90, 110, title, title_size, 'white', True)
     gy = paragraph(90, 214, data['group'], 1410, 31, '#d9e5f5')
@@ -218,7 +263,7 @@ def render_png(data, output, regular=None, bold=None):
     for command in commands:
         if command[0] == 'text':
             _, x, cy, value, size, color, heavy = command
-            draw.text((x*SCALE, cy*SCALE), value, font=font(size, heavy), fill=color)
+            draw_runs(draw, x, cy, value, size, color, heavy)
         else:
             _, coords, fill, outline, radius = command
             draw.rounded_rectangle(tuple(round(v*SCALE) for v in coords), radius=radius*SCALE, fill=fill, outline=outline, width=2*SCALE)
