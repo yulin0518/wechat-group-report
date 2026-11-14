@@ -34,6 +34,21 @@ description: "读取 Windows 已登录微信中指定群的本地已同步记录
 8. 最终给出简短时间范围与消息数，内联 PNG，并链接 PNG、HTML、Markdown 的绝对路径。可用 `open_in_codex` 展示网页。不要只交付文字摘要或只告诉用户可以继续生成。
 9. 交付时只给完整长图（见「默认与输入」中的交付约定）；不加 `--force` 不会生成分图。
 
+## 按发送人导出（不写总结）
+
+用户要“把某人某段时间的发言全部抽出来”时，用 `scripts/export_sender.py`，不要用 read_group 后再手工筛：
+
+```bash
+python "SKILL_DIR/scripts/export_sender.py" --group "群名" --sender "显示名" \
+  --end "2026-11-15T00:00:00+08:00" --hours 744 --out "输出目录"
+```
+
+- `--sender` 必须与群内显示名完全一致；找不到时会提示相近的发送人。
+- 默认跳过视频消息并在文首注明条数；加 `--include-video` 可保留视频标记。动画表情只保留标记。
+- 图片会解密落盘到 `images/`：优先原图，原图未下发时自动回退缩略图并在 `messages.json` 的 `image_note` 标注；每张图在 Markdown/HTML 中就地展示。
+- 同时输出 `messages.json`（结构化）、`<发送人>-发言记录.md`、`.txt`、`index.html`（离线可开，图片用相对路径）。
+- 图片密钥用 cfgDword 派生（`db.extract_master_key()` → `MediaDownloader.detect_image_key()`），不走“打开图片等 120 秒”的兜底路径；缺少该密钥时只在文首标注，不阻塞文字导出。
+
 ## 复用清单
 
 一次性复现整条流程：
