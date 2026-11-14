@@ -332,7 +332,8 @@ def write_txt(path, meta, messages):
     for m in messages:
         tag = m['type']
         if m['image']:
-            tag += f'（{m["image"]}）'
+            note = m.get('image_note') or ''
+            tag += f'（{m["image"]}{"，" + note if note and note != "原图" else ""}）'
         elif m['type'] == '图片':
             tag += f'（{m.get("image_note") or "未保存"}）'
         lines += [f'[{m["id"]:04d}] {m["time"]}　[{tag}]', m['content']]
@@ -352,6 +353,10 @@ def write_md(path, meta, messages):
         lines.append('')
         if m['image']:
             lines.append(f'![图片 {m["id"]:04d}]({m["image"]})')
+            note = m.get('image_note') or ''
+            if note and note != '原图':
+                lines.append('')
+                lines.append(f'> {note}')
             lines.append('')
         elif m['type'] == '图片':
             lines.append(f'> {m.get("image_note") or "图片未保存"}')
@@ -372,6 +377,9 @@ def write_html(path, meta, messages):
                  f'<div class="c">{body}</div>']
         if m['image']:
             parts.append(f'<img src="{html.escape(m["image"])}" loading="lazy" alt="{m["id"]:04d}">')
+            note = m.get('image_note') or ''
+            if note and note != '原图':
+                parts.append(f'<div class="note">{html.escape(note)}</div>')
         elif m['type'] == '图片':
             parts.append(f'<div class="note">{html.escape(m.get("image_note") or "图片未保存")}</div>')
         if m['transcript']:
