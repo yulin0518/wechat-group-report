@@ -99,6 +99,17 @@ def save_image(db, dl, index, user, local_id, aes_key, xor_key, img_dir, seq):
     if not dat:
         return None
     data = dl.decrypt_image(dat, aes_key, xor_key)
+    if data[:4] == b'wxgf':
+        # 微信 4.x 原图为 HEVC 容器。ffmpeg 不可用或解码失败时，
+        # 退回同一 md5 的缩略图（通常是普通 JPG），避免交付无法查看的文件。
+        jpg = dl._wxgf_to_jpg(data)
+        if jpg is not None:
+            data = jpg
+        elif kind == '原图' and index.get(md5 + '_t.dat'):
+            alt = dl.decrypt_image(index[md5 + '_t.dat'], aes_key, xor_key)
+            if alt[:3] == b'\xff\xd8\xff' or alt[:4] == b'\x89PNG':
+                data = alt
+                kind = '缩略图（原图为微信 HEVC 格式，本机无法解码）'
     if data[:3] == b'\xff\xd8\xff':
         ext = 'jpg'
     elif data[:4] == b'\x89PNG':
@@ -106,14 +117,10 @@ def save_image(db, dl, index, user, local_id, aes_key, xor_key, img_dir, seq):
     elif data[:3] == b'GIF':
         ext = 'gif'
     elif data[:4] == b'wxgf':
-        jpg = dl._wxgf_to_jpg(data)
-        if jpg is None:
-            ext, data = 'wxgf', data
-        else:
-            ext, data = 'jpg', jpg
+        ext = 'wxgf'
     else:
         ext = 'img'
-    name = f'{seq:04d}_{md5}{"_thumb" if kind == "缩略图" else ""}.{ext}'
+    name = f'{seq:04d}_{md5}{"_thumb" if kind.startswith("缩略图") else ""}.{ext}'
     (img_dir / name).write_bytes(data)
     return f'images/{name}', kind
 
@@ -221,11 +228,34 @@ def run(args):
             if not key:
                 print('  ！未取得图片密钥，本次只记录图片标记', flush=True)
             # 一次性索引该群媒体目录，避免每张图都遍历磁盘
+            # 图片原图可能留在旧数据目录：微信迁移账号目录后本地只带走了缩略图。
+            # 因此除当前账号目录外，还支持 --media-dir 指定备用目录，或自动探测
+            # 同级/上级目录下同名账号的历史数据（只读，不改动微信数据）。
             index = {}
-            base = os.path.join(db.account_dir, 'msg', 'attach', downloader._chat_md5(username))
-            for root, _, files in os.walk(base):
-                for f in files:
-                    index.setdefault(f, os.path.join(root, f))
+            chat_md5 = downloader._chat_md5(username)
+            account_dir = Path(db.account_dir)
+            media_roots = [str(account_dir)]
+            extra_roots = list(getattr(args, 'media_dir', None) or [])
+            if not extra_roots:
+                for parent in (account_dir.parent, account_dir.parent.parent):
+                    try:
+                        for cand in parent.iterdir():
+                            if (cand.is_dir() and cand.name == args.account
+                                    and cand.resolve() != account_dir.resolve()
+                                    and (cand / 'msg' / 'attach').is_dir()):
+                                extra_roots.append(str(cand))
+                    except OSError:
+                        pass
+            for extra in extra_roots:
+                if extra not in media_roots:
+                    media_roots.append(extra)
+            bases = [os.path.join(r, 'msg', 'attach', chat_md5) for r in media_roots]
+            for base in bases:
+                for root, _, files in os.walk(base):
+                    for f in files:
+                        index.setdefault(f, os.path.join(root, f))
+            if len(bases) > 1:
+                print(f'  图片索引：{len(bases)} 个目录（含历史数据目录）', flush=True)
             total = sum(1 for m in messages if m['type'] == '图片')
             done = 0
             for m in messages:
@@ -390,6 +420,8 @@ def main(argv=None):
     p.add_argument('--out', help='直接指定输出目录')
     p.add_argument('--no-images', action='store_true', help='只导出文字，不下载图片')
     p.add_argument('--include-video', action='store_true', help='保留视频消息标记（默认跳过）')
+    p.add_argument('--media-dir', action='append',
+                   help='备用媒体根目录（账号目录，可重复指定）；当前目录缺原图时用历史目录补齐')
     args = p.parse_args(argv)
     if not math.isfinite(args.hours) or args.hours <= 0:
         p.error('--hours 必须是大于 0 的有限数值')

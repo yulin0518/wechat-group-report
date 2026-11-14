@@ -46,6 +46,8 @@ python "SKILL_DIR/scripts/export_sender.py" --group "群名" --sender "显示名
 - `--sender` 必须与群内显示名完全一致；找不到时会提示相近的发送人。
 - 默认跳过视频消息并在文首注明条数；加 `--include-video` 可保留视频标记。动画表情只保留标记。
 - 图片会解密落盘到 `images/`：优先原图，原图未下发时自动回退缩略图并在 `messages.json` 的 `image_note` 标注；每张图在 Markdown/HTML 中就地展示。
+- 微信换过数据目录时，旧目录里可能还留着原图：脚本会自动探测同级/上级目录下的同名账号历史数据，也可用 `--media-dir "D:/旧路径/<账号>"` 显式指定（只读，不改动微信数据）。
+- 原图是微信 HEVC 容器（`.wxgf`）时用 imageio-ffmpeg 转码；解码失败则退回该图缩略图并标注原因，不交付无法打开的占位文件。
 - 同时输出 `messages.json`（结构化）、`<发送人>-发言记录.md`、`.txt`、`index.html`（离线可开，图片用相对路径）。
 - 图片密钥用 cfgDword 派生（`db.extract_master_key()` → `MediaDownloader.detect_image_key()`），不走“打开图片等 120 秒”的兜底路径；缺少该密钥时只在文首标注，不阻塞文字导出。
 
